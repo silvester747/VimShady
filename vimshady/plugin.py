@@ -11,13 +11,21 @@ class VimShadyPlugin(object):
         self.nvim = nvim
         self.logger = None
         self.render_client = None
+        self.attached_buffer_number = None
 
     @pynvim.command("VimShady")
     def vim_shady(self):
         """Start a shader window for the current buffer"""
+        self.attached_buffer_number = self.nvim.current.buffer.number
+
         self.logger = LogWindow(self.nvim)
         self.render_client = start_render_server()
         self.update_shader()
+
+    @pynvim.autocmd("BufWrite", pattern="*.glsl")
+    def buffer_written(self):
+        if self.nvim.current.buffer.number == self.attached_buffer_number:
+            self.update_shader()
 
     def update_shader(self):
         try:
@@ -36,32 +44,42 @@ class LogWindow(object):
     def __init__(self, nvim):
         self.nvim = nvim
 
-        self.buffer = self.nvim.api.create_buf(False, True)
-        if not self.buffer.valid:
-            raise Exception("Could not create log buffer")
-        self.buffer.api.set_option("modifiable", False)
-        self.buffer.api.set_option("modified", False)
+        self.buffer = None
+        self.window = None
 
-        self.win = self.nvim.api.open_win(
-            self.buffer,
-            False,
-            {
-                "split": "below",
-                "height": 10,
-                "style": "minimal",
-            },
-        )
-        if not self.win.valid:
-            raise Exception("Could not create log window")
+        self.ensure_buffer()
+        self.ensure_window()
 
-    def append(self, text):
-        self.nvim.async_call(self._append, text)
+    def append(self, *text):
+        self.ensure_buffer()
+        self.ensure_window()
 
-    def _append(self, *text):
-        if not self.win.valid or not self.buffer.valid:
-            raise Exception("Log window/buffer no longer valid")
         self.buffer.api.set_option("modifiable", True)
         self.buffer.append(text)
         self.buffer.api.set_option("modifiable", False)
         self.buffer.api.set_option("modified", False)
-        self.win.api.set_cursor((len(self.buffer), 0))
+        self.window.api.set_cursor((len(self.buffer), 0))
+
+    def ensure_buffer(self):
+        if self.buffer is None or not self.buffer.valid:
+            self.buffer = self.nvim.api.create_buf(False, True)
+            if not self.buffer.valid:
+                raise Exception("Could not create log buffer")
+            self.buffer.api.set_option("modifiable", False)
+            self.buffer.api.set_option("modified", False)
+
+            self.window = None
+
+    def ensure_window(self):
+        if self.window is None or not self.window.valid or self.window.buffer.number != self.buffer.number:
+            self.window = self.nvim.api.open_win(
+                self.buffer,
+                False,
+                {
+                    "split": "below",
+                    "height": 10,
+                    "style": "minimal",
+                },
+            )
+            if not self.window.valid:
+                raise Exception("Could not create log window")
