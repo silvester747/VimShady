@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pyglet
 import multiprocessing as mp
+import time
 
 from dataclasses import dataclass, field
 from multiprocessing import Process, Pipe
@@ -65,12 +66,23 @@ class ShaderGroup(Group):
     def __init__(self, program):
         super().__init__()
         self.program = program
+        self.start_time = time.monotonic()
 
     def set_state(self):
         self.program.use()
+        self.update_shadertoy_uniforms()
+        self.update_bonzomatic_uniforms()
 
     def unset_state(self):
         self.program.stop()
+
+    def update_shadertoy_uniforms(self):
+        if "iTime" in self.program.uniforms:
+            self.program["iTime"] = time.monotonic() - self.start_time
+
+    def update_bonzomatic_uniforms(self):
+        if "fGlobalTime" in self.program.uniforms:
+            self.program["fGlobalTime"] = time.monotonic() - self.start_time
 
 
 class RenderServer(object):
@@ -160,11 +172,12 @@ if __name__ == "__main__":
         in vec4 out_texcoord;
         out vec4 out_color;
 
+        uniform float fGlobalTime;
         uniform vec2 test;
 
         void main()
         {
-            out_color = vec4(1., out_texcoord.y, 0., test.y);
+            out_color = vec4(.5 + .5*sin(fGlobalTime), out_texcoord.y, 0., test.y);
         }
     """
     try:
