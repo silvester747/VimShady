@@ -11,7 +11,8 @@ class VimShadyPlugin(object):
         self.nvim = nvim
         self.logger = None
         self.render_client = None
-        self.attached_buffer_number = None
+        self.attached_buffer = None
+        self.auto_command_group = None
 
     @pynvim.command("VimShady")
     def vim_shady(self):
@@ -21,27 +22,48 @@ class VimShadyPlugin(object):
         else:
             self._attach_to_current_buffer()
 
-    @pynvim.autocmd("BufWrite", pattern="*.glsl")
-    def buffer_written(self):
-        if self._is_current_buffer_attached():
-            self._update_shader()
+    @pynvim.command("VimShadyUpdateShader")
+    def update_shader(self):
+        """Update the shader from the current buffer"""
+        self._update_shader()
 
     def _attach_to_current_buffer(self):
-        self.attached_buffer_number = self.nvim.current.buffer.number
+        self._delete_auto_commands()
+        self.attached_buffer = self.nvim.current.buffer
         self.logger = LogWindow(self.nvim)
         if self.render_client is None:
             self.render_client = start_render_server()
         self.logger.append(f"Rendering shader from `{self.nvim.current.buffer.name}`")
         self._update_shader()
+        self._create_auto_commands()
 
     def _detach_from_current_buffer(self):
-        self.attached_buffer_number = None
+        self._delete_auto_commands()
+        self.attached_buffer = None
         self.logger.close()
         self.render_client = None
 
+    def _create_auto_commands(self):
+        self.auto_command_group = self.nvim.api.create_augroup("VimShadyAUG", {})
+
+        # Update shader on Buffer Write:
+        self.nvim.api.create_autocmd(
+            "BufWrite",
+            {
+                "group": self.auto_command_group,
+                "buffer": self.attached_buffer.number,
+                "command": ":VimShadyUpdateShader",
+            },
+        )
+
+    def _delete_auto_commands(self):
+        if self.auto_command_group is not None:
+            self.nvim.api.del_augroup_by_id(self.auto_command_group)
+            self.auto_command_group = None
+
     def _update_shader(self):
         try:
-            fragment_source = "\n".join(self.nvim.current.buffer)
+            fragment_source = "\n".join(self.attached_buffer)
             result = self.render_client.update_shader_source(fragment_source)
             self.logger.append("Shader compiled")
             if result.uniforms:
@@ -52,7 +74,7 @@ class VimShadyPlugin(object):
             self.logger.append(*str(ex).split("\n"))
 
     def _is_current_buffer_attached(self):
-        return self.nvim.current.buffer.number == self.attached_buffer_number
+        return self.attached_buffer is not None and self.nvim.current.buffer.number == self.attached_buffer.number
 
 
 class LogWindow(object):
@@ -96,7 +118,11 @@ class LogWindow(object):
             self.window = None
 
     def _ensure_window(self):
-        if self.window is None or not self.window.valid or self.window.buffer.number != self.buffer.number:
+        if (
+            self.window is None
+            or not self.window.valid
+            or self.window.buffer.number != self.buffer.number
+        ):
             self.window = self.nvim.api.open_win(
                 self.buffer,
                 False,
@@ -108,4 +134,3 @@ class LogWindow(object):
             )
             if not self.window.valid:
                 raise Exception("Could not create log window")
-
