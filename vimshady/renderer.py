@@ -27,7 +27,7 @@ DEFAULT_VERTEX_SOURCE = """#version 410 core
 
 class RenderWindow(pyglet.window.Window):
     def __init__(self):
-        super().__init__(caption="Vim Shady")
+        super().__init__(caption="Vim Shady", resizable=True)
 
         self.fps = pyglet.window.FPSDisplay(self)
         self.shader = None
