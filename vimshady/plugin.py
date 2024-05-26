@@ -4,6 +4,7 @@ from threading import Thread
 
 from .renderer import start_render_server
 
+
 @pynvim.plugin
 class VimShadyPlugin(object):
     def __init__(self, nvim):
@@ -21,8 +22,12 @@ class VimShadyPlugin(object):
     def update_shader(self):
         try:
             fragment_source = "\n".join(self.nvim.current.buffer)
-            self.render_client.update_shader_source(fragment_source)
+            result = self.render_client.update_shader_source(fragment_source)
             self.logger.append("Shader compiled")
+            if result.uniforms:
+                self.logger.append("Uniforms detected:")
+                for u in result.uniforms:
+                    self.logger.append(f"\t{u.name}: length={u.length}, size={u.size}")
         except Exception as ex:
             self.logger.append(*str(ex).split("\n"))
 
@@ -37,11 +42,15 @@ class LogWindow(object):
         self.buffer.api.set_option("modifiable", False)
         self.buffer.api.set_option("modified", False)
 
-        self.win = self.nvim.api.open_win(self.buffer, False, {
-            "split": "below",
-            "height": 10,
-            "style": "minimal",
-        })
+        self.win = self.nvim.api.open_win(
+            self.buffer,
+            False,
+            {
+                "split": "below",
+                "height": 10,
+                "style": "minimal",
+            },
+        )
         if not self.win.valid:
             raise Exception("Could not create log window")
 

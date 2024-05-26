@@ -1,12 +1,14 @@
+from __future__ import annotations
+
 import pyglet
 import multiprocessing as mp
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from multiprocessing import Process, Pipe
 from pyglet.graphics import Batch, Group
 from pyglet.graphics.shader import Shader, ShaderProgram, ShaderException
 from threading import Thread
-from typing import Optional
+from typing import List, Optional
 
 
 DEFAULT_VERTEX_SOURCE = """#version 410 core
@@ -27,20 +29,12 @@ class RenderWindow(pyglet.window.Window):
         super().__init__(caption="Vim Shady")
 
         self.fps = pyglet.window.FPSDisplay(self)
-        self._shader = None
-        self._new_shader = None
-
-    def swap_shader(self, new_shader):
-        self._new_shader = new_shader
+        self.shader = None
 
     def on_draw(self):
-        if self._new_shader is not None:
-            self._shader = self._new_shader
-            self._new_shader = None
-
         self.clear()
-        if self._shader is not None:
-            self._shader.draw()
+        if self.shader is not None:
+            self.shader.draw()
         self.fps.draw()
 
 
@@ -95,11 +89,17 @@ class RenderServer(object):
 
     def handle_update_shader_request(self, request):
         try:
-            new_shader = ShaderCanvas(DEFAULT_VERTEX_SOURCE, request.fragment_shader_source)
-            self.window.swap_shader(new_shader)
-            self.pipe.send(UpdateShaderResponse())
+            new_shader = ShaderCanvas(
+                DEFAULT_VERTEX_SOURCE, request.fragment_shader_source
+            )
+            self.window.shader = new_shader
+            self.pipe.send(
+                UpdateShaderResponse(
+                    uniforms=UniformDetails.from_program(new_shader.program)
+                )
+            )
         except ShaderException as ex:
-            self.pipe.send(UpdateShaderResponse(str(ex)))
+            self.pipe.send(UpdateShaderResponse(error=str(ex)))
 
 
 class RenderClient(object):
@@ -111,6 +111,7 @@ class RenderClient(object):
         response = self.pipe.recv()
         if response.error is not None:
             raise Exception(response.error)
+        return response
 
 
 @dataclass
@@ -121,6 +122,27 @@ class UpdateShaderRequest(object):
 @dataclass
 class UpdateShaderResponse(object):
     error: Optional[str] = None
+    uniforms: List[UniformDetails] = field(default_factory=list)
+
+
+@dataclass
+class UniformDetails(object):
+    name: str
+    length: int
+    location: int
+    size: int
+
+    @classmethod
+    def from_program(cls, program):
+        return [
+            cls(
+                name=key,
+                length=value["length"],
+                location=value["location"],
+                size=value["size"],
+            )
+            for key, value in program.uniforms.items()
+        ]
 
 
 def start_render_server():
@@ -138,13 +160,16 @@ if __name__ == "__main__":
         in vec4 out_texcoord;
         out vec4 out_color;
 
+        uniform vec2 test;
+
         void main()
         {
-            out_color = vec4(1., out_texcoord.y, 0., 1.);
+            out_color = vec4(1., out_texcoord.y, 0., test.y);
         }
     """
     try:
-        client.update_shader_source(fragment_source)
+        response = client.update_shader_source(fragment_source)
+        print(f"Detected uniforms: {', '.join(str(u) for u in response.uniforms)}")
     except Exception as ex:
         print("Got an exception:")
         print(ex)
