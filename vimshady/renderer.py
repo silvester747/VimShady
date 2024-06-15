@@ -10,6 +10,7 @@ from pathlib import Path
 from pyglet.gl import *
 from pyglet.graphics import Batch, Group
 from pyglet.graphics.shader import Shader, ShaderProgram, ShaderException
+from pyglet.window import key
 from threading import Thread
 from typing import List, Optional
 
@@ -32,14 +33,61 @@ class RenderWindow(pyglet.window.Window):
         super().__init__(caption="Vim Shady", resizable=True)
 
         self.fps = pyglet.window.FPSDisplay(self)
+        self.timer = Timer()
         self.shader = None
 
     def on_draw(self):
         self.clear()
         if self.shader is not None:
+            self.shader.group.timer_tick = self.timer.tick()
             self.shader.group.viewport_resolution = vec2(*self.get_framebuffer_size())
             self.shader.draw()
         self.fps.draw()
+
+    def on_key_press(self, symbol, modifiers):
+        if symbol == key.P:
+            self.timer.running = not self.timer.running
+        elif symbol in (key.MINUS, key.UNDERSCORE):
+            if modifiers & key.MOD_CTRL:
+                self.timer.speed -= 1.0
+            elif modifiers & key.MOD_SHIFT:
+                self.timer.speed -= 0.5
+            else:
+                self.timer.speed -= 0.1
+        elif symbol in (key.EQUAL, key.PLUS):
+            if modifiers & key.MOD_CTRL:
+                self.timer.speed += 1.0
+            elif modifiers & key.MOD_SHIFT:
+                self.timer.speed += 0.5
+            else:
+                self.timer.speed += 0.1
+
+
+class Timer(object):
+    def __init__(self):
+        self.running = True
+        self.speed = 1.0
+
+        self._total_time = 0.0
+        self._start_time = time.monotonic()
+        self._last_frame_time = self._start_time
+
+    def tick(self):
+        now = time.monotonic()
+        if self.running:
+            diff = now - self._last_frame_time
+            self._total_time += diff * self.speed
+        else:
+            diff = 0.0
+
+        self._last_frame_time = now
+        return TimerTick(self._total_time, diff)
+
+
+@dataclass
+class TimerTick(object):
+    total_time: int
+    frame_time: int
 
 
 class ShaderCanvas(object):
@@ -89,8 +137,8 @@ class ShaderGroup(Group):
         self.program = program
         self.texture_dir = texture_dir
 
-        self.start_time = time.monotonic()
         self.viewport_resolution = vec2()
+        self.timer_tick = TimerTick(0.0, 0.0)
 
         self.textures = {}
         self.load_textures()
@@ -137,10 +185,11 @@ class ShaderGroup(Group):
         self.program.stop()
 
     def update_shadertoy_uniforms(self):
-        self.set_uniform("iTime", time.monotonic() - self.start_time)
+        self.set_uniform("iTime", self.timer_tick.total_time)
 
     def update_bonzomatic_uniforms(self):
-        self.set_uniform("fGlobalTime", time.monotonic() - self.start_time)
+        self.set_uniform("fGlobalTime", self.timer_tick.total_time)
+        self.set_uniform("fFrameTime", self.timer_tick.frame_time)
         self.set_uniform("v2Resolution", self.viewport_resolution.uniform())
 
     def set_uniform(self, name, value):
