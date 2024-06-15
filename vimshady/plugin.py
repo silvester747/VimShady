@@ -1,5 +1,6 @@
 import pynvim
 
+from pathlib import Path
 from threading import Thread
 
 from .renderer import start_render_server
@@ -14,7 +15,7 @@ class VimShadyPlugin(object):
         self.attached_buffer = None
         self.auto_command_group = None
 
-    @pynvim.command("VimShady")
+    @pynvim.command("VimShady", sync=True)
     def vim_shady(self):
         """Start/stop a shader window for the current buffer"""
         if self._is_current_buffer_attached():
@@ -22,10 +23,18 @@ class VimShadyPlugin(object):
         else:
             self._attach_to_current_buffer()
 
-    @pynvim.command("VimShadyUpdateShader")
+    @pynvim.command("VimShadyUpdateShader", sync=True)
     def update_shader(self):
         """Update the shader from the current buffer"""
         self._update_shader()
+
+    @pynvim.command("VimShadyTextureDir", nargs=1, sync=True)
+    def set_texture_dir(self, args):
+        """Change the directory to load textures from"""
+        if self.render_client is None:
+            self.render_client = start_render_server()
+        self.render_client.set_texture_dir(Path(args[0]))
+        self.logger.append(f"Changed texture dir to `{args[0]}`")
 
     def _attach_to_current_buffer(self):
         self._delete_auto_commands()
@@ -34,6 +43,7 @@ class VimShadyPlugin(object):
         if self.render_client is None:
             self.render_client = start_render_server()
         self.logger.append(f"Rendering shader from `{self.nvim.current.buffer.name}`")
+        self.render_client.set_texture_dir(Path(self.nvim.current.buffer.name).parent)
         self._update_shader()
         self._create_auto_commands()
 
@@ -74,7 +84,10 @@ class VimShadyPlugin(object):
             self.logger.append(*str(ex).split("\n"))
 
     def _is_current_buffer_attached(self):
-        return self.attached_buffer is not None and self.nvim.current.buffer.number == self.attached_buffer.number
+        return (
+            self.attached_buffer is not None
+            and self.nvim.current.buffer.number == self.attached_buffer.number
+        )
 
 
 class LogWindow(object):
