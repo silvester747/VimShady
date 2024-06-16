@@ -67,6 +67,8 @@ class RenderWindow(pyglet.window.Window):
                 self.timer.speed += 0.5
             else:
                 self.timer.speed += 0.1
+        elif symbol == key.Q:
+            self.on_close()
 
     def on_close(self):
         config = Config.load()
