@@ -38,6 +38,17 @@ class RenderWindow(pyglet.window.Window):
         self.timer = Timer()
         self.shader = None
 
+        self.info_label = pyglet.text.Label(
+            "Starting",
+            font_size=24,
+            color=(127, 127, 127, 127),
+            x=self.width-10,
+            y=0,
+            anchor_x="right",
+            anchor_y="bottom",
+        )
+        self._update_info_label()
+
         config = Config.load()
         self.set_location(config.window_x, config.window_y)
         self.set_size(config.window_width, config.window_height)
@@ -49,6 +60,7 @@ class RenderWindow(pyglet.window.Window):
             self.shader.group.viewport_resolution = vec2(*self.get_framebuffer_size())
             self.shader.draw()
         self.fps.draw()
+        self.info_label.draw()
 
     def on_key_press(self, symbol, modifiers):
         if symbol == key.P:
@@ -70,6 +82,8 @@ class RenderWindow(pyglet.window.Window):
         elif symbol == key.Q:
             self.on_close()
 
+        self._update_info_label()
+
     def on_mouse_press(self, x, y, button, modifiers):
         if self.shader is not None:
             self.shader.group.mouse_current = x, y
@@ -78,12 +92,20 @@ class RenderWindow(pyglet.window.Window):
     def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers):
         self.shader.group.mouse_current = x, y
 
+    def on_resize(self, width, height):
+        super().on_resize(width, height)
+        self.info_label.x = width-10
+
     def on_close(self):
         config = Config.load()
         config.window_x, config.window_y = self.get_location()
         config.window_width, config.window_height = self.get_size()
         config.save()
         super().on_close()
+
+    def _update_info_label(self):
+        speed = f"{self.timer.speed:.1f}" if self.timer.running else "Paused"
+        self.info_label.text = f"Speed: {speed}"
 
 
 class Timer(object):
