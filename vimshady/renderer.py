@@ -70,13 +70,20 @@ class RenderWindow(pyglet.window.Window):
         elif symbol == key.Q:
             self.on_close()
 
+    def on_mouse_press(self, x, y, button, modifiers):
+        if self.shader is not None:
+            self.shader.group.mouse_current = x, y
+            self.shader.group.mouse_click = x, y
+
+    def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers):
+        self.shader.group.mouse_current = x, y
+
     def on_close(self):
         config = Config.load()
         config.window_x, config.window_y = self.get_location()
         config.window_width, config.window_height = self.get_size()
         config.save()
         super().on_close()
-
 
 
 class Timer(object):
@@ -155,6 +162,8 @@ class ShaderGroup(Group):
 
         self.viewport_resolution = vec2()
         self.timer_tick = TimerTick(0.0, 0.0)
+        self.mouse_current = 0, 0
+        self.mouse_click = 0, 0
 
         self.textures = {}
         self.load_textures()
@@ -202,6 +211,8 @@ class ShaderGroup(Group):
 
     def update_shadertoy_uniforms(self):
         self.set_uniform("iTime", self.timer_tick.total_time)
+        self.set_uniform("iTimeDelta", self.timer_tick.frame_time)
+        self.set_uniform("iMouse", self.mouse_current + self.mouse_click)
 
     def update_bonzomatic_uniforms(self):
         self.set_uniform("fGlobalTime", self.timer_tick.total_time)
