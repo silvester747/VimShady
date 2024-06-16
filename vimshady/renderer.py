@@ -14,6 +14,8 @@ from pyglet.window import key
 from threading import Thread
 from typing import List, Optional
 
+from .config import Config
+
 
 DEFAULT_VERTEX_SOURCE = """#version 410 core
     in vec3 in_pos;
@@ -35,6 +37,10 @@ class RenderWindow(pyglet.window.Window):
         self.fps = pyglet.window.FPSDisplay(self)
         self.timer = Timer()
         self.shader = None
+
+        config = Config.load()
+        self.set_location(config.window_x, config.window_y)
+        self.set_size(config.window_width, config.window_height)
 
     def on_draw(self):
         self.clear()
@@ -61,6 +67,14 @@ class RenderWindow(pyglet.window.Window):
                 self.timer.speed += 0.5
             else:
                 self.timer.speed += 0.1
+
+    def on_close(self):
+        config = Config.load()
+        config.window_x, config.window_y = self.get_location()
+        config.window_width, config.window_height = self.get_size()
+        config.save()
+        super().on_close()
+
 
 
 class Timer(object):
