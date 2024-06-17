@@ -188,16 +188,16 @@ class ShaderGroup(Group):
         self.mouse_click = 0, 0
 
         self.textures = {}
-        self.load_textures()
+        self._load_textures()
 
     def set_texture_dir(self, texture_dir):
         self.texture_dir = texture_dir
-        self.load_textures()
+        self._load_textures()
 
-    def load_textures(self):
+    def _load_textures(self):
         for uniform in self.program.uniforms:
             if uniform.startswith("tex"):
-                file = self.find_texture_file(uniform[3:])
+                file = self._find_texture_file(uniform[3:])
                 if file is None:
                     print(f"Cannot find texture for {uniform}")
                 else:
@@ -213,7 +213,7 @@ class ShaderGroup(Group):
                     glFlush()
                     self.textures[uniform] = texture
 
-    def find_texture_file(self, name):
+    def _find_texture_file(self, name):
         found_files = list(self.texture_dir.glob(f"{name}.*", case_sensitive=False))
         if found_files:
             return found_files[0]
@@ -250,22 +250,22 @@ class RenderServer(object):
     def __init__(self, pipe):
         self.pipe = pipe
         self.window = RenderWindow()
-        self.window.push_handlers(on_draw=self.handle_requests)
+        self.window.push_handlers(on_draw=self._handle_requests)
 
         self.texture_dir = Path(__file__).parent
 
         pyglet.app.run()
 
-    def handle_requests(self):
+    def _handle_requests(self):
         # Handle one request per frame for now
         if self.pipe.poll():
             request = self.pipe.recv()
             if isinstance(request, UpdateShaderRequest):
-                self.handle_update_shader_request(request)
+                self._handle_update_shader_request(request)
             elif isinstance(request, SetTextureDirRequest):
-                self.handle_set_texture_dir_request(request)
+                self._handle_set_texture_dir_request(request)
 
-    def handle_update_shader_request(self, request):
+    def _handle_update_shader_request(self, request):
         try:
             new_shader = ShaderCanvas(
                 DEFAULT_VERTEX_SOURCE, request.fragment_shader_source, self.texture_dir
@@ -279,7 +279,7 @@ class RenderServer(object):
         except ShaderException as ex:
             self.pipe.send(UpdateShaderResponse(error=str(ex)))
 
-    def handle_set_texture_dir_request(self, request):
+    def _handle_set_texture_dir_request(self, request):
         self.texture_dir = request.texture_dir
         try:
             if self.window.shader is not None:
