@@ -36,13 +36,14 @@ class RenderWindow(pyglet.window.Window):
 
         self.fps = pyglet.window.FPSDisplay(self)
         self.timer = Timer()
+        self.uniform_data = UniformData()
         self.shader = None
 
         self.info_label = pyglet.text.Label(
             "Starting",
             font_size=24,
             color=(127, 127, 127, 127),
-            x=self.width-10,
+            x=self.width - 10,
             y=0,
             anchor_x="right",
             anchor_y="bottom",
@@ -53,11 +54,20 @@ class RenderWindow(pyglet.window.Window):
         self.set_location(config.window_x, config.window_y)
         self.set_size(config.window_width, config.window_height)
 
+    def load_shader(self, fragment_shader_source, texture_dir):
+        new_shader = ShaderCanvas(
+            DEFAULT_VERTEX_SOURCE,
+            fragment_shader_source,
+            texture_dir,
+            self.uniform_data,
+        )
+        self.shader = new_shader
+        return new_shader.program
+
     def on_draw(self):
         self.clear()
         if self.shader is not None:
-            self.shader.group.timer_tick = self.timer.tick()
-            self.shader.group.viewport_resolution = vec2(*self.get_framebuffer_size())
+            self.uniform_data.timer_tick = self.timer.tick()
             self.shader.draw()
         self.fps.draw()
         self.info_label.draw()
@@ -85,16 +95,18 @@ class RenderWindow(pyglet.window.Window):
         self._update_info_label()
 
     def on_mouse_press(self, x, y, button, modifiers):
-        if self.shader is not None:
-            self.shader.group.mouse_current = x, y
-            self.shader.group.mouse_click = x, y
+        self.uniform_data.mouse_click(x, y)
 
     def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers):
-        self.shader.group.mouse_current = x, y
+        self.uniform_data.mouse_move(x, y, dx, dy)
 
     def on_resize(self, width, height):
         super().on_resize(width, height)
-        self.info_label.x = width-10
+        self.info_label.x = width - 10
+        self.uniform_data.window_resize(*self.get_framebuffer_size())
+
+    def on_show(self):
+        self.uniform_data.window_resize(*self.get_framebuffer_size())
 
     def on_close(self):
         config = Config.load()
@@ -136,13 +148,13 @@ class TimerTick(object):
 
 
 class ShaderCanvas(object):
-    def __init__(self, vertex_source, fragment_source, texture_dir):
+    def __init__(self, vertex_source, fragment_source, texture_dir, uniform_data):
         self.vertex_shader = Shader(vertex_source, "vertex")
         self.fragment_shader = Shader(fragment_source, "fragment")
         self.program = ShaderProgram(self.vertex_shader, self.fragment_shader)
         self.batch = Batch()
         self.texture_loader = TextureLoader(self.program, texture_dir)
-        self.group = ShaderGroup(self.program, self.texture_loader)
+        self.group = ShaderGroup(self.program, self.texture_loader, uniform_data)
 
         input_variables = {}
         if "in_pos" in self.program.attributes:
@@ -166,15 +178,6 @@ class ShaderCanvas(object):
 
     def draw(self):
         self.batch.draw()
-
-
-@dataclass
-class vec2(object):
-    x: float = 0.0
-    y: float = 0.0
-
-    def uniform(self):
-        return self.x, self.y
 
 
 class TextureLoader(object):
@@ -223,39 +226,56 @@ class TextureLoader(object):
         return None
 
 
+class UniformData(object):
+    def __init__(self):
+        self.timer_tick = TimerTick(0.0, 0.0)
+        self._viewport_resolution = 0, 0
+        self._mouse_current = 0, 0
+        self._mouse_click = 0, 0
+
+    def mouse_click(self, x, y):
+        self._mouse_current = x, y
+        self._mouse_click = x, y
+
+    def mouse_move(self, x, y, dx, dy):
+        self._mouse_current = x, y
+
+    def window_resize(self, width, height):
+        self._viewport_resolution = width, height
+
+    def update(self, program):
+        self._update_shadertoy_uniforms(program)
+        self._update_bonzomatic_uniforms(program)
+
+    def _update_shadertoy_uniforms(self, program):
+        self._set_uniform(program, "iTime", self.timer_tick.total_time)
+        self._set_uniform(program, "iTimeDelta", self.timer_tick.frame_time)
+        self._set_uniform(program, "iMouse", self._mouse_current + self._mouse_click)
+
+    def _update_bonzomatic_uniforms(self, program):
+        self._set_uniform(program, "fGlobalTime", self.timer_tick.total_time)
+        self._set_uniform(program, "fFrameTime", self.timer_tick.frame_time)
+        self._set_uniform(program, "v2Resolution", self._viewport_resolution)
+
+    def _set_uniform(self, program, name, value):
+        if name in program.uniforms:
+            program[name] = value
+
+
 class ShaderGroup(Group):
-    def __init__(self, program, texture_loader):
+    def __init__(self, program, texture_loader, uniform_data):
         super().__init__()
         self.program = program
         self.texture_loader = texture_loader
-
-        self.viewport_resolution = vec2()
-        self.timer_tick = TimerTick(0.0, 0.0)
-        self.mouse_current = 0, 0
-        self.mouse_click = 0, 0
+        self.uniform_data = uniform_data
 
     def set_state(self):
         self.program.use()
-        self.update_shadertoy_uniforms()
-        self.update_bonzomatic_uniforms()
         self.texture_loader.bind()
+        self.uniform_data.update(self.program)
 
     def unset_state(self):
         self.program.stop()
-
-    def update_shadertoy_uniforms(self):
-        self.set_uniform("iTime", self.timer_tick.total_time)
-        self.set_uniform("iTimeDelta", self.timer_tick.frame_time)
-        self.set_uniform("iMouse", self.mouse_current + self.mouse_click)
-
-    def update_bonzomatic_uniforms(self):
-        self.set_uniform("fGlobalTime", self.timer_tick.total_time)
-        self.set_uniform("fFrameTime", self.timer_tick.frame_time)
-        self.set_uniform("v2Resolution", self.viewport_resolution.uniform())
-
-    def set_uniform(self, name, value):
-        if name in self.program.uniforms:
-            self.program[name] = value
 
 
 class RenderServer(object):
@@ -279,14 +299,11 @@ class RenderServer(object):
 
     def _handle_update_shader_request(self, request):
         try:
-            new_shader = ShaderCanvas(
-                DEFAULT_VERTEX_SOURCE, request.fragment_shader_source, self.texture_dir
+            program = self.window.load_shader(
+                request.fragment_shader_source, self.texture_dir
             )
-            self.window.shader = new_shader
             self.pipe.send(
-                UpdateShaderResponse(
-                    uniforms=UniformDetails.from_program(new_shader.program)
-                )
+                UpdateShaderResponse(uniforms=UniformDetails.from_program(program))
             )
         except ShaderException as ex:
             self.pipe.send(UpdateShaderResponse(error=str(ex)))
