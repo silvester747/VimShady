@@ -141,7 +141,8 @@ class ShaderCanvas(object):
         self.fragment_shader = Shader(fragment_source, "fragment")
         self.program = ShaderProgram(self.vertex_shader, self.fragment_shader)
         self.batch = Batch()
-        self.group = ShaderGroup(self.program, texture_dir)
+        self.texture_loader = TextureLoader(self.program, texture_dir)
+        self.group = ShaderGroup(self.program, self.texture_loader)
 
         input_variables = {}
         if "in_pos" in self.program.attributes:
@@ -176,23 +177,25 @@ class vec2(object):
         return self.x, self.y
 
 
-class ShaderGroup(Group):
+class TextureLoader(object):
     def __init__(self, program, texture_dir):
-        super().__init__()
         self.program = program
-        self.texture_dir = texture_dir
-
-        self.viewport_resolution = vec2()
-        self.timer_tick = TimerTick(0.0, 0.0)
-        self.mouse_current = 0, 0
-        self.mouse_click = 0, 0
-
         self.textures = {}
+        self._texture_dir = texture_dir
+
+    @property
+    def texture_dir(self):
+        return self._texture_dir
+
+    @texture_dir.setter
+    def texture_dir(self, value):
+        self._texture_dir = value
         self._load_textures()
 
-    def set_texture_dir(self, texture_dir):
-        self.texture_dir = texture_dir
-        self._load_textures()
+    def bind(self):
+        for unit, uniform in enumerate(self.textures):
+            self.textures[uniform].bind(texture_unit=unit)
+            self.program[uniform] = unit
 
     def _load_textures(self):
         for uniform in self.program.uniforms:
@@ -219,14 +222,23 @@ class ShaderGroup(Group):
             return found_files[0]
         return None
 
+
+class ShaderGroup(Group):
+    def __init__(self, program, texture_loader):
+        super().__init__()
+        self.program = program
+        self.texture_loader = texture_loader
+
+        self.viewport_resolution = vec2()
+        self.timer_tick = TimerTick(0.0, 0.0)
+        self.mouse_current = 0, 0
+        self.mouse_click = 0, 0
+
     def set_state(self):
         self.program.use()
         self.update_shadertoy_uniforms()
         self.update_bonzomatic_uniforms()
-
-        for unit, uniform in enumerate(self.textures):
-            self.textures[uniform].bind(texture_unit=unit)
-            self.program[uniform] = unit
+        self.texture_loader.bind()
 
     def unset_state(self):
         self.program.stop()
@@ -283,7 +295,7 @@ class RenderServer(object):
         self.texture_dir = request.texture_dir
         try:
             if self.window.shader is not None:
-                self.window.shader.group.set_texture_dir(self.texture_dir)
+                self.window.shader.texture_loader.texture_dir = self.texture_dir
             self.pipe.send(SetTextureDirResponse())
         except Exception as ex:
             self.pipe.send(SetTextureDirResponse(error=str(ex)))
