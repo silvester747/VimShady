@@ -185,6 +185,7 @@ class TextureLoader(object):
         self.program = program
         self.textures = {}
         self._texture_dir = texture_dir
+        self._load_textures()
 
     @property
     def texture_dir(self):
@@ -396,6 +397,7 @@ if __name__ == "__main__":
         response = client.update_shader_source(fragment_source)
         print(f"Detected uniforms: {', '.join(str(u) for u in response.uniforms)}")
         client.set_texture_dir(test_data_dir)
+        response = client.update_shader_source(fragment_source)
     except Exception as ex:
         print("Got an exception:")
         print(ex)
