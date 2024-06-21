@@ -100,13 +100,18 @@ class RenderWindow(pyglet.window.Window):
     def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers):
         self.uniform_data.mouse_move(x, y, dx, dy)
 
+    def on_mouse_scroll(self, x, y, scroll_x, scroll_y):
+        self.uniform_data.mouse_scroll(scroll_x, scroll_y)
+
     def on_resize(self, width, height):
         super().on_resize(width, height)
         self.info_label.x = width - 10
         self.uniform_data.window_resize(*self.get_framebuffer_size())
 
     def on_show(self):
-        self.uniform_data.window_resize(*self.get_framebuffer_size())
+        size = self.get_framebuffer_size()
+        self.uniform_data.window_resize(*size)
+        self.uniform_data.mouse_click(size[0] / 2, size[1] / 2)
 
     def on_close(self):
         config = Config.load()
@@ -233,6 +238,7 @@ class UniformData(object):
         self._viewport_resolution = 0, 0
         self._mouse_current = 0, 0
         self._mouse_click = 0, 0
+        self._mouse_scroll = 0., 0.
 
     def mouse_click(self, x, y):
         self._mouse_current = x, y
@@ -241,12 +247,16 @@ class UniformData(object):
     def mouse_move(self, x, y, dx, dy):
         self._mouse_current = x, y
 
+    def mouse_scroll(self, scroll_x, scroll_y):
+        self._mouse_scroll = self._mouse_scroll[0] + scroll_x, self._mouse_scroll[1] + scroll_y
+
     def window_resize(self, width, height):
         self._viewport_resolution = width, height
 
     def update(self, program):
         self._update_shadertoy_uniforms(program)
         self._update_bonzomatic_uniforms(program)
+        self._update_vimshady_uniforms(program)
 
     def _update_shadertoy_uniforms(self, program):
         self._set_uniform(program, "iTime", self.timer_tick.total_time)
@@ -257,6 +267,9 @@ class UniformData(object):
         self._set_uniform(program, "fGlobalTime", self.timer_tick.total_time)
         self._set_uniform(program, "fFrameTime", self.timer_tick.frame_time)
         self._set_uniform(program, "v2Resolution", self._viewport_resolution)
+
+    def _update_vimshady_uniforms(self, program):
+        self._set_uniform(program, "iMouseScroll", self._mouse_scroll)
 
     def _set_uniform(self, program, name, value):
         if name in program.uniforms:
