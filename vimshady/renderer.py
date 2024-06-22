@@ -4,7 +4,7 @@ import pyglet
 import multiprocessing as mp
 import time
 
-from dataclasses import dataclass, field
+from dataclasses import astuple, dataclass, field
 from multiprocessing import Process, Pipe
 from pathlib import Path
 from pyglet.gl import *
@@ -232,26 +232,39 @@ class TextureLoader(object):
         return None
 
 
+@dataclass
+class vec2:
+    x: float = 0.0
+    y: float = 0.0
+
+
+@dataclass
+class ivec2:
+    x: int = 0
+    y: int = 0
+
+
 class UniformData(object):
     def __init__(self):
         self.timer_tick = TimerTick(0.0, 0.0)
-        self._viewport_resolution = 0, 0
-        self._mouse_current = 0, 0
-        self._mouse_click = 0, 0
-        self._mouse_scroll = 0., 0.
+        self._viewport_resolution = ivec2()
+        self._mouse_current = ivec2()
+        self._mouse_click = ivec2()
+        self._mouse_scroll = vec2()
 
     def mouse_click(self, x, y):
-        self._mouse_current = x, y
-        self._mouse_click = x, y
+        self._mouse_current = ivec2(x, y)
+        self._mouse_click = ivec2(x, y)
 
     def mouse_move(self, x, y, dx, dy):
-        self._mouse_current = x, y
+        self._mouse_current = ivec2(x, y)
 
     def mouse_scroll(self, scroll_x, scroll_y):
-        self._mouse_scroll = self._mouse_scroll[0] + scroll_x, self._mouse_scroll[1] + scroll_y
+        self._mouse_scroll.x += scroll_x
+        self._mouse_scroll.y += scroll_y
 
-    def window_resize(self, width, height):
-        self._viewport_resolution = width, height
+    def window_resize(self, width: int, height: int):
+        self._viewport_resolution = ivec2(width, height)
 
     def update(self, program):
         self._update_shadertoy_uniforms(program)
@@ -261,15 +274,17 @@ class UniformData(object):
     def _update_shadertoy_uniforms(self, program):
         self._set_uniform(program, "iTime", self.timer_tick.total_time)
         self._set_uniform(program, "iTimeDelta", self.timer_tick.frame_time)
-        self._set_uniform(program, "iMouse", self._mouse_current + self._mouse_click)
+        self._set_uniform(
+            program, "iMouse", astuple(self._mouse_current) + astuple(self._mouse_click)
+        )
 
     def _update_bonzomatic_uniforms(self, program):
         self._set_uniform(program, "fGlobalTime", self.timer_tick.total_time)
         self._set_uniform(program, "fFrameTime", self.timer_tick.frame_time)
-        self._set_uniform(program, "v2Resolution", self._viewport_resolution)
+        self._set_uniform(program, "v2Resolution", astuple(self._viewport_resolution))
 
     def _update_vimshady_uniforms(self, program):
-        self._set_uniform(program, "iMouseScroll", self._mouse_scroll)
+        self._set_uniform(program, "iMouseScroll", astuple(self._mouse_scroll))
 
     def _set_uniform(self, program, name, value):
         if name in program.uniforms:
