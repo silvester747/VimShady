@@ -1,21 +1,18 @@
 from __future__ import annotations
 
-import pyglet
 import multiprocessing as mp
 import time
-
 from dataclasses import astuple, dataclass, field
-from multiprocessing import Process, Pipe
 from pathlib import Path
-from pyglet.gl import *
-from pyglet.graphics import Batch, Group
-from pyglet.graphics.shader import Shader, ShaderProgram, ShaderException
-from pyglet.window import key
-from threading import Thread
 from typing import List, Optional
 
-from .config import Config
+import pyglet
+import pyglet.gl as gl
+from pyglet.graphics import Batch, Group
+from pyglet.graphics.shader import Shader, ShaderException, ShaderProgram
+from pyglet.window import key
 
+from .config import Config
 
 DEFAULT_VERTEX_SOURCE = """#version 410 core
     in vec3 in_pos;
@@ -175,7 +172,7 @@ class ShaderCanvas(object):
 
         self.vlist = self.program.vertex_list(
             4,
-            pyglet.gl.GL_TRIANGLE_STRIP,
+            gl.GL_TRIANGLE_STRIP,
             batch=self.batch,
             group=self.group,
             **input_variables,
@@ -216,13 +213,17 @@ class TextureLoader(object):
                     # Manual loading into texture in order to set texture wrap settings
                     image = pyglet.image.load(file)
                     texture = pyglet.image.Texture.create(
-                        image.width, image.height, GL_TEXTURE_2D, GL_SRGB8_ALPHA8
+                        image.width, image.height, gl.GL_TEXTURE_2D, gl.GL_SRGB8_ALPHA8
                     )
-                    glBindTexture(texture.target, texture.id)
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+                    gl.glBindTexture(texture.target, texture.id)
+                    gl.glTexParameteri(
+                        gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT
+                    )
+                    gl.glTexParameteri(
+                        gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT
+                    )
                     image.blit_to_texture(texture.target, texture.level, 0, 0, 0, None)
-                    glFlush()
+                    gl.glFlush()
                     self.textures[uniform] = texture
 
     def _find_texture_file(self, name):

@@ -1,7 +1,6 @@
-import pynvim
-
 from pathlib import Path
-from threading import Thread
+
+import pynvim
 
 from .renderer import start_render_server
 

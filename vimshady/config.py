@@ -1,8 +1,8 @@
-import platformdirs
-import toml
-
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+import platformdirs
+import toml
 
 app_name = "VimShady"
 app_author = "Silvester747"
