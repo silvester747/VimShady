@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import time
-from dataclasses import astuple, dataclass, field
+from dataclasses import astuple, dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Mapping, Optional
 
 import pyglet
 import pyglet.gl as gl
@@ -51,7 +51,7 @@ class RenderWindow(pyglet.window.Window):
         self.set_location(config.window_x, config.window_y)
         self.set_size(config.window_width, config.window_height)
 
-    def load_shader(self, fragment_shader_source, texture_dir):
+    def load_shader(self, fragment_shader_source, texture_dir) -> ShaderCanvas:
         new_shader = ShaderCanvas(
             DEFAULT_VERTEX_SOURCE,
             fragment_shader_source,
@@ -59,7 +59,7 @@ class RenderWindow(pyglet.window.Window):
             self.uniform_data,
         )
         self.shader = new_shader
-        return new_shader.program
+        return new_shader
 
     def on_draw(self):
         self.clear()
@@ -151,9 +151,9 @@ class TimerTick(object):
 
 class ShaderCanvas(object):
     def __init__(self, vertex_source, fragment_source, texture_dir, uniform_data):
-        self.vertex_shader = Shader(vertex_source, "vertex")
-        self.fragment_shader = Shader(fragment_source, "fragment")
-        self.program = ShaderProgram(self.vertex_shader, self.fragment_shader)
+        vertex_shader = Shader(vertex_source, "vertex")
+        fragment_shader = Shader(fragment_source, "fragment")
+        self.program = ShaderProgram(vertex_shader, fragment_shader)
         self.batch = Batch()
         self.texture_loader = TextureLoader(self.program, texture_dir)
         self.group = ShaderGroup(self.program, self.texture_loader, uniform_data)
@@ -181,11 +181,63 @@ class ShaderCanvas(object):
     def draw(self):
         self.batch.draw()
 
+    @property
+    def texture_dir(self):
+        return self.texture_loader.texture_dir
+
+    @texture_dir.setter
+    def texture_dir(self, value):
+        self.texture_loader.texture_dir = value
+
+    def generate_summary(self):
+        loaded_textures = self.texture_loader.texture_files
+        missing_textures = list(self.texture_loader.missing_textures())
+
+        other_uniforms = [
+            uniform
+            for uniform in self.program.uniforms
+            if uniform not in loaded_textures and uniform not in missing_textures
+        ]
+
+        known_uniforms = [
+            uniform
+            for uniform in other_uniforms
+            if uniform in UniformData.SUPPORTED_UNIFORMS
+        ]
+        unknown_uniforms = [
+            uniform
+            for uniform in other_uniforms
+            if uniform not in UniformData.SUPPORTED_UNIFORMS
+        ]
+
+        return ShaderSummary(
+            known_uniforms, unknown_uniforms, loaded_textures, missing_textures
+        )
+
+
+@dataclass
+class ShaderSummary:
+    known_uniforms: List[str]
+    unknown_uniforms: List[str]
+    loaded_textures: Mapping[str, Path]
+    missing_textures: List[str]
+
+    def __str__(self) -> str:
+        lines = []
+        lines.append(f"Supported uniforms: {', '.join(self.known_uniforms)}")
+        lines.append(f"Other uniforms:     {', '.join(self.unknown_uniforms)}")
+        lines.append("Loaded textures:")
+        for name, file in self.loaded_textures.items():
+            lines.append(f"\t{name} -> {file}")
+        lines.append(f"Missing textures:   {', '.join(self.missing_textures)}")
+        return "\n".join(lines)
+
 
 class TextureLoader(object):
     def __init__(self, program, texture_dir):
         self.program = program
         self.textures = {}
+        self.texture_files = {}
         self._texture_dir = texture_dir
         self._load_textures()
 
@@ -203,30 +255,36 @@ class TextureLoader(object):
             self.textures[uniform].bind(texture_unit=unit)
             self.program[uniform] = unit
 
-    def _load_textures(self):
+    def needed_textures(self):
         for uniform in self.program.uniforms:
             if uniform.startswith("tex"):
-                file = self._find_texture_file(uniform[3:])
-                if file is None:
-                    print(f"Cannot find texture for {uniform}")
-                else:
-                    # Manual loading into texture in order to set texture wrap settings
-                    image = pyglet.image.load(file)
-                    texture = pyglet.image.Texture.create(
-                        image.width, image.height, gl.GL_TEXTURE_2D, gl.GL_SRGB8_ALPHA8
-                    )
-                    gl.glBindTexture(texture.target, texture.id)
-                    gl.glTexParameteri(
-                        gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT
-                    )
-                    gl.glTexParameteri(
-                        gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT
-                    )
-                    image.blit_to_texture(texture.target, texture.level, 0, 0, 0, None)
-                    gl.glFlush()
-                    self.textures[uniform] = texture
+                yield uniform
 
-    def _find_texture_file(self, name):
+    def missing_textures(self):
+        for uniform in self.needed_textures():
+            if uniform not in self.textures:
+                yield uniform
+
+    def _load_textures(self):
+        for uniform in self.needed_textures():
+            file = self._find_texture_file(uniform[3:])
+            if file is None:
+                print(f"Cannot find texture for {uniform}")
+            else:
+                # Manual loading into texture in order to set texture wrap settings
+                image = pyglet.image.load(file)
+                texture = pyglet.image.Texture.create(
+                    image.width, image.height, gl.GL_TEXTURE_2D, gl.GL_SRGB8_ALPHA8
+                )
+                gl.glBindTexture(texture.target, texture.id)
+                gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT)
+                gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT)
+                image.blit_to_texture(texture.target, texture.level, 0, 0, 0, None)
+                gl.glFlush()
+                self.textures[uniform] = texture
+                self.texture_files[uniform] = file
+
+    def _find_texture_file(self, name) -> Optional[Path]:
         found_files = list(self.texture_dir.glob(f"{name}.*", case_sensitive=False))
         if found_files:
             return found_files[0]
@@ -246,6 +304,16 @@ class ivec2:
 
 
 class UniformData(object):
+    SUPPORTED_UNIFORMS = [
+        "iTime",
+        "iTimeDelta",
+        "iMouse",
+        "fGlobalTime",
+        "fFrameTime",
+        "v2Resolution",
+        "iMouseScroll",
+    ]
+
     def __init__(self):
         self.timer_tick = TimerTick(0.0, 0.0)
         self._viewport_resolution = ivec2()
@@ -329,12 +397,10 @@ class RenderServer(object):
 
     def _handle_update_shader_request(self, request):
         try:
-            program = self.window.load_shader(
+            shader = self.window.load_shader(
                 request.fragment_shader_source, self.texture_dir
             )
-            self.pipe.send(
-                UpdateShaderResponse(uniforms=UniformDetails.from_program(program))
-            )
+            self.pipe.send(UpdateShaderResponse(summary=shader.generate_summary()))
         except ShaderException as ex:
             self.pipe.send(UpdateShaderResponse(error=str(ex)))
 
@@ -342,7 +408,7 @@ class RenderServer(object):
         self.texture_dir = request.texture_dir
         try:
             if self.window.shader is not None:
-                self.window.shader.texture_loader.texture_dir = self.texture_dir
+                self.window.shader.texture_dir = self.texture_dir
             self.pipe.send(SetTextureDirResponse())
         except Exception as ex:
             self.pipe.send(SetTextureDirResponse(error=str(ex)))
@@ -375,7 +441,7 @@ class UpdateShaderRequest(object):
 @dataclass
 class UpdateShaderResponse(object):
     error: Optional[str] = None
-    uniforms: List[UniformDetails] = field(default_factory=list)
+    summary: Optional[ShaderSummary] = None
 
 
 @dataclass
@@ -386,26 +452,6 @@ class SetTextureDirRequest(object):
 @dataclass
 class SetTextureDirResponse(object):
     error: Optional[str] = None
-
-
-@dataclass
-class UniformDetails(object):
-    name: str
-    length: int
-    location: int
-    size: int
-
-    @classmethod
-    def from_program(cls, program):
-        return [
-            cls(
-                name=key,
-                length=value["length"],
-                location=value["location"],
-                size=value["size"],
-            )
-            for key, value in program.uniforms.items()
-        ]
 
 
 def start_render_server():
@@ -424,9 +470,10 @@ if __name__ == "__main__":
     fragment_source = (test_data_dir / "test.glsl").read_text()
     try:
         response = client.update_shader_source(fragment_source)
-        print(f"Detected uniforms: {', '.join(str(u) for u in response.uniforms)}")
+        print(response.summary)
         client.set_texture_dir(test_data_dir)
         response = client.update_shader_source(fragment_source)
+        print(response.summary)
     except Exception as ex:
         print("Got an exception:")
         print(ex)

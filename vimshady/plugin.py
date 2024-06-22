@@ -75,10 +75,8 @@ class VimShadyPlugin(object):
             fragment_source = "\n".join(self.attached_buffer)
             result = self.render_client.update_shader_source(fragment_source)
             self.logger.append("Shader compiled")
-            if result.uniforms:
-                self.logger.append("Uniforms detected:")
-                for u in result.uniforms:
-                    self.logger.append(f"\t{u.name}: length={u.length}, size={u.size}")
+            if result.summary:
+                self.logger.append(*str(result.summary).split("\n"))
         except Exception as ex:
             self.logger.append(*str(ex).split("\n"))
 
